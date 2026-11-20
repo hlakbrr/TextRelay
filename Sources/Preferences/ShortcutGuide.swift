@@ -1,0 +1,133 @@
+import UIKit
+
+/// The guide presented from a Shortcut instance's page.
+///
+/// One question — "what do I put in the Shortcut?" — and the mistake that costs
+/// the most time. TextRelay hands the Shortcut a dictionary, and a Shortcut that has
+/// not been told to accept input still runs and quietly receives nothing, with
+/// nothing on either side saying why.
+///
+/// Kept short on purpose: it is read once, standing in another app with a half
+/// finished Shortcut open. The screenshot carries the step that is hard to
+/// describe — the first action's wording changes once the dictionary action is
+/// added — so the text does not have to.
+enum ShortcutGuide {
+
+    static func present(from controller: UIViewController) {
+        GuideSheet.present(
+            from: controller,
+            title: "Using a Shortcut".localized,
+            blocks: [
+                .heading("The example".localized),
+                .text(("The Shortcut below already does everything this page "
+                    + "describes. Add it, then point this instance at it.").localized),
+                .action(
+                    title: "Get the example Shortcut".localized,
+                    detail: ("Opened for you to add. Only needs signing once the "
+                        + "copy in TextRelay has expired.").localized,
+                    run: fetchExample
+                ),
+
+                .heading("How it runs".localized),
+                .text(("TextRelay passes the notification as a dictionary and runs "
+                    + "the Shortcut in the background. Nothing else is needed "
+                    + "here.").localized),
+
+                .heading("Accept the input".localized),
+                .text(("This is the step to get right. Without it the Shortcut "
+                    + "runs and receives nothing, silently.\n\n"
+                    + "Add **Get Dictionary from Input** and set its *Get* field "
+                    + "to **Shortcut Input**. The *Receive … input* action above "
+                    + "it appears by itself — do not add that one.").localized),
+
+                .image("shortcut_guide"),
+
+                .heading("Read the fields".localized),
+                .text(("Add **Get Value for Key** for each field you want, typing "
+                    + "the key by hand. The same keys reach a webhook or a "
+                    + "script.").localized),
+                .code(fields),
+
+                .heading("If nothing happens".localized),
+                .text(("A failed Shortcut leaves no trace on either side. Check "
+                    + "that the name here matches exactly, and that the dictionary "
+                    + "step above is present.").localized),
+            ]
+        )
+    }
+
+    /// Opens the example Shortcut straight in the Shortcuts app's import screen.
+    ///
+    /// The URL is `workflow://shortcuts/<recordID>` — the form the iCloud web page's
+    /// own "Add Shortcut" button uses, and the only import entry that works here.
+    ///
+    /// `shortcuts://import-shortcut?url=…` looks like the right scheme and is the
+    /// documented general one, but it runs the file through
+    /// `WFRemoteQuarantinePolicyEvaluator` first: a signing policy script evaluated
+    /// in JavaScript, which asserts on a shortcut signed by a third party and takes
+    /// the whole app down with `SIGTRAP`. That happens for a local file, a loopback
+    /// URL and an iCloud download URL alike, and for every parameter variant
+    /// (`silent`, `name`, the older `workflow://import-workflow`) — it is the
+    /// signature the evaluator objects to, not the URL.
+    ///
+    /// The iCloud record route skips the evaluator because it is treated as a
+    /// shortcut shared from iCloud rather than a file handed in from outside.
+    private static func fetchExample(_ host: GuideSheet.ActionHost) {
+        host.setActionBusy(true, detail: "Signing…".localized)
+        ShortcutSigner.signedExample { result in
+            host.setActionBusy(false, detail: nil)
+            switch result {
+            case .success(let fileURL):
+                openImportScreen(fallback: fileURL, host: host)
+            case .failure(let error):
+                host.presentActionAlert(
+                    title: "Could Not Sign".localized,
+                    message: error.localizedDescription,
+                    share: nil
+                )
+            }
+        }
+    }
+
+    /// Opens the iCloud record, falling back to the share sheet if no app takes it.
+    private static func openImportScreen(fallback fileURL: URL,
+                                         host: GuideSheet.ActionHost) {
+        guard let url = URL(
+            string: "workflow://shortcuts/\(ShortcutSigner.sharedRecordID)"
+        ) else { return }
+
+        UIApplication.shared.open(url, options: [:]) { opened in
+            guard !opened else { return }
+            // Nothing registered the scheme: the Shortcuts app is not installed.
+            host.presentActionAlert(
+                title: "Shortcut Ready".localized,
+                message: ("Open it to add it to your Shortcuts. The Shortcuts app "
+                    + "will ask before importing, because it did not come from "
+                    + "Apple's gallery.").localized,
+                share: fileURL
+            )
+        }
+    }
+
+    /// The field list, in the shape the script guide uses: the keys are
+    /// identifiers and stay English, the trailing comments are read by a person
+    /// and are localized in place.
+    private static var fields: String {
+        """
+        title       // \("标题".localized)
+        subtitle    // \("副标题".localized)
+        message     // \("通知正文".localized)
+        appName     // \("应用名".localized)
+        appID       // \("应用Bundle ID".localized)
+        date        // \("通知到达时间".localized)
+        deviceName  // \("设备名称".localized)
+        icon        // \("发送通知的App图标".localized)
+        image       // \("通知中的图片附件".localized)
+        sim?: {             // \("only in SMS notifications".localized)
+          slot: number        // \("the slot number, 1 or 2".localized)
+          phoneNumber: string // \("the receiving card's number".localized)
+          label: string       // \("the nickname set in Global Settings".localized)
+        }
+        """
+    }
+}

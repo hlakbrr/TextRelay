@@ -1,0 +1,328 @@
+import UIKit
+import Preferences
+
+/// The "Custom" page: the service *types* the user has written.
+///
+/// This page defines types; the "Services" page uses them. Writing one here —
+/// "a Bark that posts to my own server", say — adds a new kind of service to the
+/// add list, and every service of that kind shares this script while keeping its
+/// own settings, app list and log.
+///
+/// The two pages are deliberately not the same page, because they answer
+/// different questions: a definition says *how* to send somewhere, an instance
+/// says *where* and *whether to*. Keeping them apart is what makes one script
+/// worth writing for several destinations.
+///
+/// Import and export are both reachable from here and from the Instances page,
+/// with the scope deciding what is offered: a page of scripts should not ask
+/// whether the user also wants to move their Pushover account.
+@objc(NSPCustomServiceListController)
+public final class CustomServiceListController: PlainViewController, ServiceTransferHost {
+    private static let cellIdentifier = "CustomServiceCell"
+
+    private var definitions: [CustomServiceDefinition] = []
+    private var tableView: UITableView!
+    private var addButton: UIBarButtonItem!
+    private var editButton: UIBarButtonItem!
+    private var transferButton: UIBarButtonItem!
+
+    public override func viewDidLoad() {
+        super.viewDidLoad()
+
+        let frame = UIDevice.current.userInterfaceIdiom == .pad
+            ? root?.view.bounds ?? view.bounds
+            : view.bounds
+        tableView = UITableView(frame: frame, style: .insetGrouped)
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: Self.cellIdentifier)
+        tableView.dataSource = self
+        tableView.delegate = self
+        view.addSubview(tableView)
+
+        navigationItem.title = "Services".localized
+        // Both actions sit on the right: the left slot is the back button, and
+        // taking it traps the user on this page.
+        transferButton = UIBarButtonItem(
+            image: UIImage(systemName: "ellipsis.circle"),
+            menu: UIMenu(title: "", children: [])
+        )
+        addButton = UIBarButtonItem(barButtonSystemItem: .add, target: self,
+                                    action: #selector(addDefinition))
+        editButton = UIBarButtonItem(title: "Edit".localized, style: .plain,
+                                     target: self, action: #selector(toggleEditing(_:)))
+        // Held as properties, not anonymous: the transfer menu is rebuilt from
+        // state, and the edit button's own enabled state is what says whether
+        // there is anything to reorder.
+        navigationItem.rightBarButtonItems = [addButton, editButton, transferButton]
+    }
+
+    public override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        Theme.setActiveTintColor(nil)
+        tintToTextRelayColor()
+        reloadData()
+    }
+
+    /// Shows what an import added; see ``ServiceTransferHost``.
+    @objc public func reloadAfterTransfer() {
+        reloadData()
+    }
+
+    // MARK: - Data
+
+    private func reloadData() {
+        definitions = CustomServiceStore.definitions()
+        tableView.reloadData()
+        updateBarButtons()
+    }
+
+    /// Keeps the two stateful buttons honest about what can be done.
+    ///
+    /// The edit button is pointless with nothing to reorder or delete, and export
+    /// is meaningless with nothing to export — but import stays live either way,
+    /// since a device with nothing on it is exactly where an import is wanted.
+    /// Edit mode is left alone while it is on, or there would be no way out of it.
+    private func updateBarButtons() {
+        editButton?.isEnabled = tableView.isEditing || !definitions.isEmpty
+
+        let canExport = !definitions.isEmpty
+        let export = UIAction(
+            title: "Export…".localized,
+            image: UIImage(systemName: "square.and.arrow.up")
+        ) { [weak self] _ in
+            guard let self else { return }
+            ServiceTransfer.offerExport(from: self, scope: .services)
+        }
+        export.attributes = canExport ? [] : .disabled
+
+        let importAction = UIAction(
+            title: "Import…".localized,
+            image: UIImage(systemName: "square.and.arrow.down")
+        ) { [weak self] _ in
+            guard let self else { return }
+            // Leaving edit mode first: otherwise the page the import writes to is
+            // the page behind the sheet, and it comes back with the edit controls
+            // still showing — where a tap renames instead of opening.
+            self.applyEditing(false)
+            ServiceTransfer.offerImport(from: self, scope: .services)
+        }
+        transferButton?.menu = UIMenu(title: "", children: [export, importAction])
+    }
+
+    /// Turns editing off, including the button's title.
+    ///
+    /// Named distinctly from `UIViewController.setEditing(_:animated:)`, which
+    /// this is not an override of: that one is about the controller's own edit
+    /// affordances, this is about the table's.
+    private func applyEditing(_ editing: Bool) {
+        tableView.setEditing(editing, animated: true)
+        editButton?.title = editing ? "Done".localized : "Edit".localized
+    }
+
+    // MARK: - Actions
+
+    @objc private func addDefinition() {
+        promptForName(initialValue: CustomServiceStore.uniqueName()) { [weak self] name in
+            guard let self else { return }
+            let definition = CustomServiceStore.add(name: name)
+            self.reloadData()
+
+            // Open it straight away: a definition exists only to be written, and
+            // its script starts as a working example to edit.
+            self.open(definition)
+        }
+    }
+
+    private func open(_ definition: CustomServiceDefinition) {
+        push(CustomServiceEditorController(definitionID: definition.id))
+    }
+
+    @objc private func toggleEditing(_ sender: UIBarButtonItem) {
+        applyEditing(!tableView.isEditing)
+        updateBarButtons()
+    }
+
+    /// Renames a definition, refusing a name another one already has.
+    private func rename(_ definition: CustomServiceDefinition) {
+        promptForName(initialValue: definition.name, title: "Rename Service".localized,
+                      confirmTitle: "Rename".localized) { [weak self] name in
+            guard let self else { return }
+            var updated = definition
+            updated.name = name
+            CustomServiceStore.save(updated)
+            self.reloadData()
+        }
+    }
+
+    /// Deletes a definition, telling the user what will happen to services using
+    /// it — they do not disappear, they stop having a script.
+    private func delete(_ definition: CustomServiceDefinition) {
+        let used = CustomServiceStore.usageCount(of: definition.id)
+        guard used > 0 else {
+            CustomServiceStore.remove(id: definition.id)
+            reloadData()
+            return
+        }
+
+        let alert = UIAlertController(
+            title: "Delete Service".localized,
+            message: String(
+                // One `.localized` on the whole sentence: see the note in the
+                // scripting guide's scanner — a localisation applied to a
+                // fragment, or to the result of a concatenation, looks up a key
+                // no table contains.
+                format: ("%d instances use this. They keep their settings and stop "
+                    + "sending until they are given another service.").localized,
+                used
+            ),
+            preferredStyle: .alert
+        )
+        alert.addAction(UIAlertAction(title: "Cancel".localized, style: .cancel))
+        alert.addAction(UIAlertAction(title: "Delete".localized, style: .destructive) {
+            [weak self] _ in
+            CustomServiceStore.remove(id: definition.id)
+            self?.reloadData()
+        })
+        present(alert, animated: true)
+    }
+
+    /// Asks for a name, re-prompting when it is taken.
+    private func promptForName(
+        initialValue: String,
+        title: String = "New Service".localized,
+        confirmTitle: String = "Add".localized,
+        completion: @escaping (String) -> Void
+    ) {
+        let alert = UIAlertController(title: title, message: nil, preferredStyle: .alert)
+        alert.addTextField { field in
+            field.placeholder = "Name".localized
+            field.text = initialValue
+            field.autocapitalizationType = .words
+        }
+        alert.addAction(UIAlertAction(title: "Cancel".localized, style: .cancel))
+        alert.addAction(UIAlertAction(title: confirmTitle, style: .default) { [weak self] _ in
+            guard let self else { return }
+            let name = alert.textFields?.first?.text?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+            if name.isEmpty {
+                self.presentError("Enter a name for this service.".localized)
+                return
+            }
+            guard CustomServiceStore.isNameAvailable(name) else {
+                self.presentError(String(
+                    format: "Another service is already named \"%@\". Choose a different name."
+                        .localized,
+                    name
+                ))
+                return
+            }
+            completion(name)
+        })
+        present(alert, animated: true)
+    }
+
+    private func presentError(_ message: String) {
+        let alert = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "Ok".localized, style: .default))
+        present(alert, animated: true)
+    }
+}
+
+// MARK: - Table
+
+extension CustomServiceListController: UITableViewDataSource, UITableViewDelegate {
+    public func numberOfSections(in tableView: UITableView) -> Int { 1 }
+
+    public func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        definitions.count
+    }
+
+    public func tableView(_ tableView: UITableView, titleForHeaderInSection section: Int) -> String? {
+        definitions.isEmpty ? nil : "Services You Defined".localized
+    }
+
+    public func tableView(_ tableView: UITableView, titleForFooterInSection section: Int) -> String? {
+        guard definitions.isEmpty else {
+            return ("Each one becomes a type you can add on the Instances page."
+                .localized)
+        }
+        return ("Define a service by writing a script, then add it on the "
+            + "Instances page.").localized
+    }
+
+    public func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: Self.cellIdentifier, for: indexPath)
+        let definition = definitions[indexPath.row]
+        cell.textLabel?.text = definition.name
+        cell.accessoryType = .disclosureIndicator
+        // The definition's own logo, so two scripts are told apart the way two
+        // services are; the generic artwork remains the fallback for one that
+        // has not chosen a logo.
+        cell.imageView?.image = ServiceIcon.logo(forDefinitionID: definition.id)
+            ?? UIImage.relay(named: "DefaultService")
+        return cell
+    }
+
+    public func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        tableView.deselectRow(at: indexPath, animated: true)
+        guard tableView.isEditing else {
+            open(definitions[indexPath.row])
+            return
+        }
+        rename(definitions[indexPath.row])
+    }
+
+    public func tableView(_ tableView: UITableView, canMoveRowAt indexPath: IndexPath) -> Bool { true }
+
+    public func tableView(
+        _ tableView: UITableView,
+        moveRowAt sourceIndexPath: IndexPath,
+        to destinationIndexPath: IndexPath
+    ) {
+        let moved = definitions.remove(at: sourceIndexPath.row)
+        definitions.insert(moved, at: destinationIndexPath.row)
+        // Only the order changed, so the whole list is written back.
+        CustomServiceStore.reorder(definitions)
+    }
+
+    public func tableView(
+        _ tableView: UITableView,
+        editingStyleForRowAt indexPath: IndexPath
+    ) -> UITableViewCell.EditingStyle {
+        .delete
+    }
+
+    public func tableView(
+        _ tableView: UITableView,
+        commit editingStyle: UITableViewCell.EditingStyle,
+        forRowAt indexPath: IndexPath
+    ) {
+        guard editingStyle == .delete else { return }
+        delete(definitions[indexPath.row])
+    }
+
+    public func tableView(
+        _ tableView: UITableView,
+        trailingSwipeActionsConfigurationForRowAt indexPath: IndexPath
+    ) -> UISwipeActionsConfiguration? {
+        let action = UIContextualAction(style: .destructive, title: "Delete".localized) {
+            [weak self] _, _, completion in
+            guard let self, indexPath.row < self.definitions.count else {
+                completion(false)
+                return
+            }
+            self.delete(self.definitions[indexPath.row])
+            completion(true)
+        }
+        let configuration = UISwipeActionsConfiguration(actions: [action])
+        configuration.performsFirstActionWithFullSwipe = false
+        return configuration
+    }
+
+    public func tableView(
+        _ tableView: UITableView,
+        shouldIndentWhileEditingRowAt indexPath: IndexPath
+    ) -> Bool {
+        false
+    }
+}

@@ -1,0 +1,68 @@
+import Foundation
+
+/// ServerChan³, the newer ServerChan. Its own user system and its own SendKeys —
+/// the two services are not interchangeable, which is why both are listed.
+///
+/// The account number is part of the host — `https://{uid}.push.ft07.com/…` — and
+/// the SendKey carries it: the documented shape is `/^sctp(\d+)t/`, so
+/// `sctp12345t…` belongs to account 12345. Reading it from the key means the two
+/// cannot disagree, which typing both in would allow.
+public enum ServerChan3Service: PushService {
+    public static let serviceName = "ServerChan3"
+    static let urlSuffix = ".push.ft07.com/send/"
+
+    public static func url(eventName: String, dbName: String, serverURL: String) -> String {
+        // The real URL carries the account and the key, so the host is built per
+        // instance in `request`. Nothing is left for this to return.
+        ""
+    }
+
+    public static func defaultPrefs() -> [String: Any] {
+        [
+            ServerChan3PrefKey.sendKey: "",
+            ServerChan3PrefKey.tags: "",
+        ]
+    }
+
+    public static func request(context: BulletinContext, config: ServiceConfig) throws -> PushRequest? {
+        let key = config.raw.string(ServerChan3PrefKey.sendKey, default: "")
+            .trimmingCharacters(in: .whitespaces)
+        guard !key.isEmpty else { throw RequestError.missingField("SendKey") }
+        guard let uid = Self.uid(fromSendKey: key) else {
+            // Documented shape is `/^sctp(\d+)t/`, and the account number in it
+            // becomes the host, so there is nothing to send to without it.
+            throw RequestError.invalidField(
+                "SendKey", reason: "expected the form sctp<account>t…"
+            )
+        }
+
+        // A body is required when there is no title, and the title may be empty on
+        // a test push, so the two swap roles rather than leaving one blank.
+        let hasBody = !context.displayMessage.isEmpty
+
+        var infoDict: [String: Any] = [
+            "title": hasBody ? context.displayTitle : context.appName,
+            "desp": hasBody ? context.displayMessage : (context.title ?? context.appName),
+        ]
+        let tags = config.raw.string(ServerChan3PrefKey.tags, default: "")
+        if !tags.isEmpty { infoDict["tags"] = tags }
+
+        let urlString = "https://\(uid)\(urlSuffix)\(key).send"
+        return withLogBody(PushRequest(urlString: urlString, infoDict: infoDict), infoDict)
+    }
+
+    /// The account number inside a SendKey, which the API host is built from.
+    ///
+    /// Documented as `/^sctp(\d+)t/`: `sctp12345t…` belongs to account 12345.
+    private static func uid(fromSendKey key: String) -> String? {
+        guard key.hasPrefix("sctp") else { return nil }
+        let digits = key.dropFirst(4).prefix { $0.isNumber }
+        return digits.isEmpty ? nil : String(digits)
+    }
+}
+
+/// The keys this service's settings are stored under.
+enum ServerChan3PrefKey {
+    static let sendKey = "sendKey"
+    static let tags = "tags"
+}

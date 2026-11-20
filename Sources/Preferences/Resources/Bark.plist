@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>items</key>
+	<array>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>footerText</key>
+			<string>Leave empty to use the official default server.</string>
+			<key>label</key>
+			<string>Credentials</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.hlakbrr.textrelay/prefs</string>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>defaults</key>
+			<string>com.hlakbrr.textrelay</string>
+			<key>detail</key>
+			<string>PSDetailController</string>
+			<key>key</key>
+			<string>key</string>
+			<key>label</key>
+			<string>Key:</string>
+			<key>noAutoCorrect</key>
+			<true/>
+			<key>service</key>
+			<string>Bark</string>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSEditTextCell</string>
+			<key>key</key>
+			<string>serverURL</string>
+			<key>label</key>
+			<string>Server URL:</string>
+			<key>noAutoCorrect</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSGroupCell</string>
+			<key>label</key>
+			<string>Apps</string>
+		</dict>
+		<dict>
+			<key>PostNotification</key>
+			<string>com.hlakbrr.textrelay/prefs</string>
+			<key>cell</key>
+			<string>PSSegmentCell</string>
+			<key>default</key>
+			<true/>
+			<key>defaults</key>
+			<string>com.hlakbrr.textrelay</string>
+			<key>detail</key>
+			<string>PSListItemsController</string>
+			<key>key</key>
+			<string>appListIsBlacklist</string>
+			<key>service</key>
+			<string>Bark</string>
+			<key>validTitles</key>
+			<array>
+				<string>Blacklist</string>
+				<string>Whitelist</string>
+			</array>
+			<key>validValues</key>
+			<array>
+				<true/>
+				<false/>
+			</array>
+		</dict>
+		<dict>
+			<key>alphabeticIndexingEnabled</key>
+			<true/>
+			<key>cell</key>
+			<string>PSLinkCell</string>
+			<key>detail</key>
+			<string>NSPAppListController</string>
+			<key>icon</key>
+			<string>app_list</string>
+			<key>label</key>
+			<string>App List</string>
+			<key>service</key>
+			<string>Bark</string>
+			<key>useSearchBar</key>
+			<true/>
+		</dict>
+		<dict>
+			<key>cell</key>
+			<string>PSLinkCell</string>
+			<key>detail</key>
+			<string>NSPCustomizeAppsController</string>
+			<key>icon</key>
+			<string>app_list</string>
+			<key>label</key>
+			<string>App Customization</string>
+			<key>service</key>
+			<string>Bark</string>
+		</dict>
+	</array>
+	<key>title</key>
+	<string>Bark</string>
+</dict>
+</plist>

@@ -1,0 +1,256 @@
+import Foundation
+
+/// One configured push destination.
+///
+/// The unit of configuration is an *instance*, not a service type: the same
+/// built-in service can be added several times (two Pushover accounts, two Bark
+/// servers), each with its own credentials, app list and log. An instance is
+/// therefore identified by ``id`` — a stable, opaque string — while ``type``
+/// only says which ``ServiceDescriptor`` knows how to build its request.
+public struct ServiceInstance {
+    /// Stable identifier, unique within the preference domain. Used as the
+    /// storage key for the instance's config and its log.
+    public let id: String
+
+    /// The ``ServiceDescriptor`` name that builds this instance's requests.
+    public let type: String
+
+    /// The user-visible label. Defaults to the type's display name, and is
+    /// editable so two instances of one type can be told apart.
+    public var name: String
+
+    /// Whether the push pipeline fans out to this instance.
+    public var isEnabled: Bool
+
+    /// This instance's own settings, already normalized by the descriptor.
+    public var config: Prefs
+
+    public init(id: String, type: String, name: String, isEnabled: Bool, config: Prefs) {
+        self.id = id
+        self.type = type
+        self.name = name
+        self.isEnabled = isEnabled
+        self.config = config
+    }
+
+    /// The descriptor that builds this instance's requests.
+    public var descriptor: ServiceDescriptor {
+        ServiceRegistry.service(named: type)
+    }
+
+    /// Whether this instance is a user-defined webhook rather than a built-in
+    /// service.
+    public var isCustom: Bool {
+        ServiceRegistry.customServiceName == type
+    }
+
+    /// Whether this instance is defined by a script.
+    public var isScript: Bool {
+        JavaScriptService.serviceName == type
+    }
+
+    /// Whether the service this instance was made from no longer exists.
+    ///
+    /// An instance outlives its service, deliberately: deleting a service leaves
+    /// the destinations alone rather than destroying settings the user may want to
+    /// carry to another service. But an instance with no service cannot send —
+    /// it has no script and no built-in kind to build a request from — so it needs
+    /// to be marked, on its own row and on its own page, or it reads as an
+    /// ordinary service that has silently stopped working.
+    public var hasMissingService: Bool {
+        ServiceRegistry.knownService(named: type) == nil
+    }
+}
+
+// MARK: - Instance identifiers
+
+public extension ServiceInstance {
+    /// A fresh instance identifier.
+    ///
+    /// Opaque and random rather than derived from the service name: the name is
+    /// editable, and deriving the id from it would make a rename look like a
+    /// different instance to the log and to stored state.
+    static func makeID() -> String {
+        UUID().uuidString
+    }
+}
+
+// MARK: - Storage shape
+
+/// Reading and writing the `Services` array in prefs.
+///
+/// The array is the single source of truth for which pushes are sent, in what
+/// order. Keeping the encode/decode in one place means the UI and the pipeline
+/// cannot disagree about the layout.
+public enum ServiceInstanceStore {
+    /// The raw array as stored, in order.
+    public static func rawInstances() -> [[String: Any]] {
+        PrefsStore.prefs().dictionaries(PrefKey.services).map(\.raw)
+    }
+
+    /// Every stored instance, in order, without a descriptor in hand — the
+    /// minimal fields only. ``ConfigLoader`` fills in the normalized config.
+    public static func instances() -> [ServiceInstance] {
+        rawInstances().compactMap { raw in
+            let prefs = Prefs(raw)
+            guard let id = prefs.nonEmptyString(PrefKey.instanceID),
+                  let type = prefs.nonEmptyString(PrefKey.instanceType)
+            else { return nil }
+            return ServiceInstance(
+                id: id,
+                type: type,
+                name: prefs.nonEmptyString(PrefKey.instanceName)
+                    ?? ServiceRegistry.service(named: type).displayName,
+                isEnabled: prefs.bool(PrefKey.serviceEnabled),
+                // Only the settings: the identity belongs to the instance, and
+                // handing it to the descriptor would put `id` back in a namespace
+                // a service is free to use for its own keys.
+                config: prefs.dict(PrefKey.instanceConfig) ?? Prefs()
+            )
+        }
+    }
+
+    /// Writes the whole array back.
+    public static func setInstances(_ instances: [[String: Any]], notify: Bool = true) {
+        PrefsStore.setValue(instances, forKey: PrefKey.services, notify: notify)
+    }
+
+    /// Appends a new instance of `type` under `name` and returns it.
+    ///
+    /// The instance starts with the descriptor's defaults, so it is immediately
+    /// usable (and immediately visible in the list) rather than a blank entry.
+    ///
+    /// The caller supplies the name: it is what tells two instances of one
+    /// service apart, so it is chosen before the instance exists (see
+    /// `ServiceTypePickerController`) rather than defaulted here.
+    @discardableResult
+    public static func add(type: String, name: String) -> ServiceInstance {
+        let descriptor = ServiceRegistry.service(named: type)
+        var prefs = descriptor.newInstancePrefs()
+        // The config fields the service declares are seeded with their defaults
+        // here, and only here: this is what "a default" means — the value the
+        // instance's page is filled in with when the instance is made. An
+        // instance that is later given nothing reads "", and editing a default
+        // changes the next instance rather than this one.
+        let seeded = ConfigFields.seedValues(forDefinition: type)
+        if !seeded.isEmpty {
+            prefs[PrefKey.configValues] = seeded
+        }
+        let instance = ServiceInstance(
+            id: ServiceInstance.makeID(),
+            type: type,
+            name: name,
+            isEnabled: true,
+            config: Prefs(prefs)
+        )
+        var stored = rawInstances()
+        stored.append(encoded(instance))
+        setInstances(stored)
+        return instance
+    }
+
+    /// Whether `name` is free, compared the way the UI compares names: trimmed
+    /// and case-folded, ignoring the instance being renamed.
+    public static func isNameAvailable(_ name: String, excluding id: String? = nil) -> Bool {
+        let candidate = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !candidate.isEmpty else { return false }
+        return !instances().contains { instance in
+            instance.id != id && instance.name.lowercased() == candidate
+        }
+    }
+
+    /// Serializes one instance.
+    public static func encoded(_ instance: ServiceInstance) -> [String: Any] {
+        // Settings under one key, identity beside it. A service may call one of
+        // its own settings `id` — Bark does — and there is then no chance of it
+        // meaning the instance's.
+        // `config` is a nested dictionary, so nothing in it can collide with the
+        // instance's own keys at the top level — and a service is free to call a
+        // setting `id` (Bark does). Stripping those names here would delete the
+        // user's Bark push id on every reorder or rename, which is exactly the
+        // bug this nesting exists to prevent.
+        let config = instance.config.raw
+
+        return [
+            PrefKey.instanceID: instance.id,
+            PrefKey.instanceType: instance.type,
+            PrefKey.instanceName: instance.name,
+            PrefKey.serviceEnabled: instance.isEnabled,
+            PrefKey.instanceConfig: config,
+        ]
+    }
+
+    // MARK: - One instance
+
+    /// One instance by id, or `nil` when it no longer exists.
+    public static func instance(id: String) -> ServiceInstance? {
+        instances().first { $0.id == id }
+    }
+
+    /// Merges fields into one instance's *settings*.
+    ///
+    /// The closure is handed the settings alone — the dictionary stored under
+    /// ``PrefKey/instanceConfig`` — and never sees the instance's identity, so a
+    /// service is free to use any key it likes, including `id`. What an instance
+    /// *is* is changed through ``rename(_:to:)``, ``setEnabled(_:_:)``, and the
+    /// store's own creation and removal.
+    public static func update(id: String, notify: Bool = true, _ mutate: (inout [String: Any]) -> Void) {
+        var stored = rawInstances()
+        guard let index = stored.firstIndex(where: {
+            Prefs($0).nonEmptyString(PrefKey.instanceID) == id
+        }) else { return }
+
+        var instance = stored[index]
+        var config = (instance[PrefKey.instanceConfig] as? [String: Any]) ?? [:]
+
+        mutate(&config)
+
+        // Only the identity keys and the config survive a write; anything else at
+        // this level predates the split and is dropped with it.
+        instance = instance.filter { PrefKey.instanceIdentityKeys.contains($0.key) }
+        instance[PrefKey.instanceConfig] = config
+        stored[index] = instance
+        setInstances(stored, notify: notify)
+    }
+
+    /// Renames one instance.
+    ///
+    /// Separate from ``update(id:notify:_:)`` because the name is not a setting:
+    /// it identifies the instance, and a service's own keys cannot reach it.
+    public static func rename(_ id: String, to name: String) {
+        var stored = rawInstances()
+        guard let index = stored.firstIndex(where: {
+            Prefs($0).nonEmptyString(PrefKey.instanceID) == id
+        }) else { return }
+        stored[index][PrefKey.instanceName] = name
+        setInstances(stored)
+    }
+
+    /// Turns one instance on or off.
+    public static func setEnabled(_ id: String, _ enabled: Bool) {
+        var stored = rawInstances()
+        guard let index = stored.firstIndex(where: {
+            Prefs($0).nonEmptyString(PrefKey.instanceID) == id
+        }) else { return }
+        stored[index][PrefKey.serviceEnabled] = enabled
+        setInstances(stored)
+    }
+
+    /// Removes one instance and its log.
+    public static func remove(id: String) {
+        var stored = rawInstances()
+        stored.removeAll { Prefs($0).nonEmptyString(PrefKey.instanceID) == id }
+        setInstances(stored)
+        LogStore.removeLogs(forService: id)
+        // The per-service log switch lives at the top level of the preferences,
+        // not in the instance, so removing the instance would leave it behind and
+        // every deleted service would keep a dead key forever.
+        PrefsStore.setValue(nil, forKey: PrefKey.logEnabledKey(forService: id), notify: false)
+    }
+
+    /// Replaces the whole array, preserving the given order. Used by the list's
+    /// reorder/enable editing.
+    public static func reorder(_ ordered: [ServiceInstance]) {
+        setInstances(ordered.map(encoded))
+    }
+}
