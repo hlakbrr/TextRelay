@@ -1,0 +1,82 @@
+Package: com.hlakbrr.textrelay-rootless
+Name: TextRelay-rootless
+Version: 1.0.0
+Provides: com.hlakbrr.textrelay
+Architecture: iphoneos-arm64
+Section: Tweaks
+Priority: optional
+Maintainer: hlakbrr <hlakbrr@users.noreply.github.com>
+Installed-Size: 7604
+Depends: mobilesubstrate, firmware (>= 15.0), com.opa334.altlist, com.82flex.libsandyxpc
+Icon: https://hlakbrr.github.io/TextRelay/icon.png
+Depiction: https://hlakbrr.github.io/TextRelay/
+Author: NoahSaso, jzksnsjswkw, hlakbrr
+Sileodepiction: https://hlakbrr.github.io/TextRelay/depiction/textrelay.json
+Filename: https://github.com/hlakbrr/TextRelay/releases/download/v1.0.0/com.hlakbrr.textrelay_1.0.0_iphoneos-arm64.deb
+Size: 4398440
+MD5sum: 9ef87c8353145af84ce1846708c065fa
+SHA256: abce64462633c7663cdededc0e6d05099087f41ab255ab0794f9fafb7b7cd9e3
+Description: iOS版的 短信转发器 和 通知滤盒
+ 将设备上的通知转发到你想要的地方，不仅限于短信，还可拦截特定通知，让其不在设备上显示。
+ .
+ - 将通知转发到 Bark、钉钉、企业微信、飞书、邮件、Gotify、Webhook 等
+ - 写 JavaScript 自定义转发逻辑
+
+Package: com.hlakbrr.textrelay-roothide
+Name: TextRelay-roothide
+Version: 1.0.0
+Provides: com.hlakbrr.textrelay
+Architecture: iphoneos-arm64e
+Section: Tweaks
+Priority: optional
+Maintainer: hlakbrr <hlakbrr@users.noreply.github.com>
+Installed-Size: 7744
+Depends: mobilesubstrate, firmware (>= 15.0), com.opa334.altlist, com.82flex.libsandyxpc
+Icon: https://hlakbrr.github.io/TextRelay/icon.png
+Depiction: https://hlakbrr.github.io/TextRelay/
+Author: NoahSaso, jzksnsjswkw, hlakbrr
+Sileodepiction: https://hlakbrr.github.io/TextRelay/depiction/textrelay.json
+Filename: https://github.com/hlakbrr/TextRelay/releases/download/v1.0.0/com.hlakbrr.textrelay_1.0.0_iphoneos-arm64e.deb
+Size: 4413588
+MD5sum: b6398fb3e8040297f2a47b3a9c55f51e
+SHA256: daaf64c23a1d268ea57f85a645b25107de24d4e14133ed8e50a83f173079c9dc
+Description: iOS版的 短信转发器 和 通知滤盒
+ 将设备上的通知转发到你想要的地方，不仅限于短信，还可拦截特定通知，让其不在设备上显示。
+ .
+ - 将通知转发到 Bark、钉钉、企业微信、飞书、邮件、Gotify、Webhook 等
+ - 写 JavaScript 自定义转发逻辑
+
+Package: com.82flex.libsandyxpc
+Name: libSandyXpc
+Version: 1.1.2
+Architecture: iphoneos-arm64e
+Section: System
+Priority: optional
+Maintainer: 82Flex <82flex@gmail.com>
+Installed-Size: 200
+Depends: com.opa334.libsandy
+Author: 82Flex <82flex@gmail.com>
+Sileodepiction: https://hlakbrr.github.io/TextRelay/depiction/textrelay.json
+Filename: https://hlakbrr.github.io/TextRelay/debs/com.82flex.libsandyxpc_1.1.2_iphoneos-arm64e.deb
+Size: 18724
+MD5sum: e194e2110113ee554e798856ed9b34a4
+SHA256: 8d8ef216d61e0ec9ff335f7298e42c71eedfc5144093a307a71a16a70d47ef09
+Description: Yet another XPC library for iOS
+
+Package: com.82flex.libsandyxpc
+Name: libSandyXpc
+Version: 1.1.2
+Architecture: iphoneos-arm64
+Section: System
+Priority: optional
+Maintainer: 82Flex <82flex@gmail.com>
+Installed-Size: 200
+Depends: com.opa334.libsandy
+Author: 82Flex <82flex@gmail.com>
+Sileodepiction: https://hlakbrr.github.io/TextRelay/depiction/textrelay.json
+Filename: https://hlakbrr.github.io/TextRelay/debs/com.82flex.libsandyxpc_1.1.2_iphoneos-arm64.deb
+Size: 18804
+MD5sum: 62ff3fc80d8ef4bc7a1e5bf519789367
+SHA256: d26624704006bfa5b16a73dddd5fb92d2ac0625359d60ec2861dd65aad28e220
+Description: Yet another XPC library for iOS
+
