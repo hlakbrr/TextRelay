@@ -3,7 +3,7 @@ Name: TextRelay
 Depends: mobilesubstrate, firmware (>= 15.0), com.opa334.altlist, com.82flex.libsandyxpc
 Conflicts: com.noahsaso.pusher, com.jzksnsjswkw.pusher, com.jzksnsjswkw.pusher-rootless, com.jzksnsjswkw.pusher-roothide
 Replaces: com.noahsaso.pusher, com.jzksnsjswkw.pusher, com.jzksnsjswkw.pusher-rootless, com.jzksnsjswkw.pusher-roothide
-Version: 3.0.0
+Version: 1.0.0
 Architecture: iphoneos-arm
 Maintainer: hlakbrr <hlakbrr@users.noreply.github.com>
 Author: NoahSaso, jzksnsjswkw, hlakbrr
