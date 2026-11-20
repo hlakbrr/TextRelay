@@ -13,6 +13,13 @@ on:
   # The build runs; the upload step is skipped because there is no tag.
   workflow_dispatch:
 
+# New repositories default the workflow token to read-only, and the Release
+# step — attaching the debs to the tag's release — fails with "Resource not
+# accessible by integration". Writing to the release is the one thing this
+# workflow needs beyond a checkout.
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: macos-latest
